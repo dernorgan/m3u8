@@ -1,4 +1,4 @@
-const { rooms, getRoomPayload, emitRoomState } = require('./roomStore');
+﻿const { rooms, getRoomPayload } = require('./roomStore');
 
 function registerSocket(io) {
   io.on('connection', (socket) => {
@@ -19,31 +19,41 @@ function registerSocket(io) {
 
       socket.data.roomCode = targetCode;
       room.members.add(socket.id);
+
+      if (!room.hostId || !room.members.has(room.hostId)) {
+        room.hostId = socket.id;
+      }
+
       socket.join(targetCode);
-      socket.emit('room:joined', getRoomPayload(targetCode));
-      socket.emit('room:state', getRoomPayload(targetCode));
-      io.to(targetCode).emit('room:state', getRoomPayload(targetCode));
+
+      const selfPayload = { ...getRoomPayload(targetCode), isHost: socket.id === room.hostId };
+      const othersPayload = { ...getRoomPayload(targetCode), isHost: false };
+
+      socket.emit('room:joined', selfPayload);
+      socket.emit('room:state', selfPayload);
+      socket.to(targetCode).emit('room:state', othersPayload);
     });
 
     socket.on('room:state:update', ({ roomCode, status, currentTime }) => {
       const targetCode = String(roomCode || '').trim().toUpperCase();
       const room = rooms[targetCode];
 
-      if (!room) {
+      if (!room || room.hostId !== socket.id) {
         return;
       }
 
       const safeStatus = status === 'playing' ? 'playing' : 'paused';
       const safeTime = Number.isFinite(Number(currentTime)) ? Number(currentTime) : room.state.currentTime;
+      const now = Date.now();
 
       room.state = {
         status: safeStatus,
         currentTime: Math.max(0, safeTime),
-        updatedAt: Date.now(),
+        updatedAt: now,
       };
 
-      const payload = getRoomPayload(targetCode);
-      socket.to(targetCode).emit('room:state', payload);
+      const payload = { ...getRoomPayload(targetCode), isHost: false };
+      io.to(targetCode).emit('room:state', payload);
     });
 
     socket.on('disconnect', () => {
@@ -57,8 +67,15 @@ function registerSocket(io) {
       room.members.delete(socket.id);
       socket.leave(roomCode);
 
+      if (room.hostId === socket.id) {
+        room.hostId = Array.from(room.members)[0] || null;
+      }
+
       if (room.members.size === 0) {
         delete rooms[roomCode];
+      } else {
+        const payload = { ...getRoomPayload(roomCode), isHost: false };
+        io.to(roomCode).emit('room:state', payload);
       }
     });
   });

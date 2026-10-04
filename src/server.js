@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
@@ -34,6 +34,7 @@ app.post('/api/rooms', (req, res) => {
   rooms[code] = {
     code,
     sourceUrl,
+    hostId: null,
     members: new Set(),
     state: {
       status: 'paused',

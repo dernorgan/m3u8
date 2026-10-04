@@ -1,4 +1,4 @@
-const tabs = [...document.querySelectorAll('.tab')];
+﻿const tabs = [...document.querySelectorAll('.tab')];
 const tabContents = [...document.querySelectorAll('.tab-content')];
 const roomPanel = document.getElementById('room-panel');
 const roomCodeLabel = document.getElementById('room-code-label');
@@ -14,9 +14,12 @@ const state = {
   roomCode: '',
   sourceUrl: '',
   hls: null,
+  isHost: false,
   lastSyncSentAt: 0,
   lastSyncStatus: '',
   lastSyncTime: 0,
+  lastRemoteSync: null,
+  lastLocalActionAt: 0,
 };
 
 function switchTab(tabName) {
@@ -57,6 +60,20 @@ function initSocket() {
       return;
     }
 
+    const remoteStatus = payload.state?.status || 'paused';
+    const remoteTime = Number(payload.state?.currentTime) || 0;
+    const updatedAt = Number(payload.state?.updatedAt) || Date.now();
+    const elapsed = (Date.now() - updatedAt) / 1000;
+    const adjusted = remoteStatus === 'playing' ? remoteTime + elapsed : remoteTime;
+    const signature = `${remoteStatus}:${Math.round(adjusted * 10)}`;
+
+    if (state.lastRemoteSync && state.lastRemoteSync.signature === signature && Date.now() - state.lastRemoteSync.time < 800) {
+      return;
+    }
+
+    state.lastRemoteSync = { signature, time: Date.now() };
+    state.isHost = Boolean(payload.isHost ?? false);
+
     updateMembers(payload.members || 0);
     roomCodeLabel.textContent = payload.code;
 
@@ -68,20 +85,28 @@ function initSocket() {
       return;
     }
 
-    const remoteStatus = payload.state?.status;
-    const remoteTime = Number(payload.state?.currentTime) || 0;
     const localStatus = video.paused ? 'paused' : 'playing';
 
-    if (Math.abs(video.currentTime - remoteTime) > 1.5) {
-      video.currentTime = remoteTime;
-    }
-
     if (remoteStatus === 'playing' && localStatus !== 'playing') {
+      if (Math.abs(video.currentTime - adjusted) > 0.8) {
+        video.currentTime = adjusted;
+      }
       video.play().catch(() => {});
+      return;
     }
 
-    if (remoteStatus === 'paused' && localStatus !== 'paused') {
-      video.pause();
+    if (remoteStatus === 'paused') {
+      if (Math.abs(video.currentTime - adjusted) > 0.8) {
+        video.currentTime = adjusted;
+      }
+      if (!video.paused) {
+        video.pause();
+      }
+      return;
+    }
+
+    if (Math.abs(video.currentTime - adjusted) > 1.2) {
+      video.currentTime = adjusted;
     }
   });
 
@@ -135,13 +160,19 @@ function loadSource(url) {
 }
 
 function sendRoomState(force = false) {
-  if (!state.socket || !state.roomCode) {
+  if (!state.socket || !state.roomCode || !state.isHost) {
     return;
   }
 
   const nextStatus = video.paused ? 'paused' : 'playing';
   const nextTime = Number(video.currentTime) || 0;
   const now = Date.now();
+
+  if (now - state.lastLocalActionAt < 250 && !force) {
+    return;
+  }
+
+  state.lastLocalActionAt = now;
 
   if (!force && now - state.lastSyncSentAt < 250 && state.lastSyncStatus === nextStatus && Math.abs(state.lastSyncTime - nextTime) < 0.35) {
     return;
@@ -177,6 +208,7 @@ async function createRoom(sourceUrl) {
   const { room } = data;
   state.sourceUrl = room.sourceUrl;
   state.roomCode = room.code;
+  state.isHost = true;
   roomPanel.classList.remove('hidden');
   roomCodeLabel.textContent = room.code;
   loadSource(room.sourceUrl);
@@ -203,6 +235,7 @@ async function joinByCode(roomCode) {
   const { room } = data;
   state.sourceUrl = room.sourceUrl;
   state.roomCode = room.code;
+  state.isHost = false;
   roomPanel.classList.remove('hidden');
   roomCodeLabel.textContent = room.code;
   loadSource(room.sourceUrl);
@@ -260,7 +293,7 @@ video.addEventListener('seeked', () => {
 });
 
 video.addEventListener('timeupdate', () => {
-  if (!video.paused && Math.abs((Number(video.currentTime) || 0) - state.lastSyncTime) > 1) {
+  if (!video.paused && Math.abs((Number(video.currentTime) || 0) - state.lastSyncTime) > 1.2) {
     sendRoomState();
   }
 });
