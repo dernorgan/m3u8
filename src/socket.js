@@ -34,6 +34,22 @@ function registerSocket(io) {
       socket.to(targetCode).emit('room:state', othersPayload);
     });
 
+    socket.on('webrtc:signal', ({ roomCode, targetId, signal }) => {
+      const targetRoomCode = String(roomCode || '').trim().toUpperCase();
+      const room = rooms[targetRoomCode];
+
+      if (!room || !room.members.has(socket.id) || !room.members.has(targetId)) {
+        return;
+      }
+
+      socket.to(targetId).emit('webrtc:signal', {
+        sourceId: socket.id,
+        targetId: socket.id,
+        signal,
+        roomCode: targetRoomCode,
+      });
+    });
+
     socket.on('room:state:update', ({ roomCode, status, currentTime }) => {
       const targetCode = String(roomCode || '').trim().toUpperCase();
       const room = rooms[targetCode];

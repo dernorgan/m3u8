@@ -39,12 +39,14 @@ function getRoomPayload(roomCode) {
   return {
     code: room.code,
     sourceUrl: room.sourceUrl,
+    hostId: room.hostId,
     state: {
       status: room.state.status,
       currentTime: room.state.currentTime,
       updatedAt: room.state.updatedAt,
     },
     members: room.members.size,
+    memberIds: Array.from(room.members),
   };
 }
 
