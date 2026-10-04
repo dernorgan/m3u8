@@ -20,10 +20,6 @@ const state = {
   lastSyncTime: 0,
   lastRemoteSync: null,
   lastLocalActionAt: 0,
-  webrtc: {
-    peers: new Map(),
-    channels: new Map(),
-  },
 };
 
 function switchTab(tabName) {
@@ -47,9 +43,10 @@ function updateMembers(count) {
 }
 
 function getVideoSyncState() {
-  const nextStatus = video.paused ? 'paused' : 'playing';
-  const nextTime = Number(video.currentTime) || 0;
-  return { status: nextStatus, currentTime: nextTime };
+  return {
+    status: video.paused ? 'paused' : 'playing',
+    currentTime: Number(video.currentTime) || 0,
+  };
 }
 
 function applyRemoteState(payload) {
@@ -66,7 +63,7 @@ function applyRemoteState(payload) {
   }
 
   state.lastRemoteSync = { signature, time: Date.now() };
-  state.isHost = Boolean(payload?.isHost ?? false);
+  state.isHost = payload?.hostId === state.socket?.id;
 
   if (roomState.status) {
     updateStatus(roomState.status === 'playing' ? 'Playing' : 'Paused');
@@ -101,158 +98,6 @@ function applyRemoteState(payload) {
   }
 }
 
-function bindWebRtcChannel(remoteId, channel) {
-  channel.onopen = () => {
-    sendWebRtcState(true);
-  };
-
-  channel.onmessage = (event) => {
-    try {
-      const message = JSON.parse(event.data);
-      if (!message || message.type !== 'sync' || message.roomCode !== state.roomCode) {
-        return;
-      }
-      applyRemoteState({ state: message.state, isHost: false });
-    } catch (error) {
-      console.warn('WebRTC sync message ignored.', error);
-    }
-  };
-}
-
-function createPeerConnection(remoteId, shouldCreateOffer = true) {
-  if (!window.RTCPeerConnection || !state.socket || !state.roomCode || remoteId === state.socket.id) {
-    return;
-  }
-
-  if (state.webrtc.peers.has(remoteId)) {
-    return;
-  }
-
-  const peerConnection = new RTCPeerConnection({
-    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
-  });
-
-  state.webrtc.peers.set(remoteId, peerConnection);
-
-  const dataChannel = peerConnection.createDataChannel('sync-channel', { ordered: true });
-  state.webrtc.channels.set(remoteId, dataChannel);
-  bindWebRtcChannel(remoteId, dataChannel);
-
-  peerConnection.ondatachannel = (event) => {
-    const channel = event.channel;
-    state.webrtc.channels.set(remoteId, channel);
-    bindWebRtcChannel(remoteId, channel);
-  };
-
-  peerConnection.onicecandidate = (event) => {
-    if (!event.candidate || !state.socket) {
-      return;
-    }
-    state.socket.emit('webrtc:signal', {
-      roomCode: state.roomCode,
-      targetId: remoteId,
-      signal: { type: 'candidate', candidate: event.candidate },
-    });
-  };
-
-  if (shouldCreateOffer) {
-    peerConnection.createOffer()
-      .then((offer) => peerConnection.setLocalDescription(offer))
-      .then(() => {
-        state.socket.emit('webrtc:signal', {
-          roomCode: state.roomCode,
-          targetId: remoteId,
-          signal: peerConnection.localDescription,
-        });
-      })
-      .catch(() => {});
-  }
-}
-
-function handleRemoteSignal({ sourceId, signal }) {
-  if (!sourceId || !signal || !state.socket || !state.roomCode) {
-    return;
-  }
-
-  if (!state.webrtc.peers.has(sourceId)) {
-    createPeerConnection(sourceId, false);
-  }
-
-  const peerConnection = state.webrtc.peers.get(sourceId);
-
-  if (!peerConnection) {
-    return;
-  }
-
-  if (signal.type === 'candidate') {
-    peerConnection.addIceCandidate(new RTCIceCandidate(signal.candidate)).catch(() => {});
-    return;
-  }
-
-  if (signal.type === 'offer') {
-    peerConnection.setRemoteDescription(new RTCSessionDescription(signal))
-      .then(() => peerConnection.createAnswer())
-      .then((answer) => peerConnection.setLocalDescription(answer))
-      .then(() => {
-        state.socket.emit('webrtc:signal', {
-          roomCode: state.roomCode,
-          targetId: sourceId,
-          signal: peerConnection.localDescription,
-        });
-      })
-      .catch(() => {});
-    return;
-  }
-
-  if (signal.type === 'answer') {
-    peerConnection.setRemoteDescription(new RTCSessionDescription(signal)).catch(() => {});
-  }
-}
-
-function syncMemberPeers(memberIds = []) {
-  if (!Array.isArray(memberIds)) {
-    return;
-  }
-
-  memberIds
-    .filter((memberId) => typeof memberId === 'string' && memberId && memberId !== state.socket?.id)
-    .forEach((memberId) => createPeerConnection(memberId));
-}
-
-function sendWebRtcState(force = false) {
-  if (!state.socket || !state.roomCode || state.webrtc.channels.size === 0) {
-    return;
-  }
-
-  const snapshot = getVideoSyncState();
-  const now = Date.now();
-
-  if (!force && now - state.lastLocalActionAt < 250 && state.lastSyncStatus === snapshot.status && Math.abs(state.lastSyncTime - snapshot.currentTime) < 0.35) {
-    return;
-  }
-
-  state.lastLocalActionAt = now;
-  state.lastSyncSentAt = now;
-  state.lastSyncStatus = snapshot.status;
-  state.lastSyncTime = snapshot.currentTime;
-
-  const payload = {
-    type: 'sync',
-    roomCode: state.roomCode,
-    state: {
-      status: snapshot.status,
-      currentTime: snapshot.currentTime,
-      updatedAt: Date.now(),
-    },
-  };
-
-  state.webrtc.channels.forEach((channel) => {
-    if (channel && channel.readyState === 'open') {
-      channel.send(JSON.stringify(payload));
-    }
-  });
-}
-
 function initSocket() {
   if (state.socket) {
     return;
@@ -271,10 +116,9 @@ function initSocket() {
       return;
     }
 
-    state.isHost = Boolean(payload.isHost ?? false);
-    updateMembers(payload.members || payload.memberIds?.length || 0);
+    state.isHost = payload.hostId === state.socket.id;
+    updateMembers(payload.members || 0);
     roomCodeLabel.textContent = payload.code;
-    syncMemberPeers(payload.memberIds || []);
   });
 
   state.socket.on('room:state', (payload) => {
@@ -282,20 +126,13 @@ function initSocket() {
       return;
     }
 
-    if (Array.isArray(payload.memberIds)) {
-      syncMemberPeers(payload.memberIds);
-    }
+    state.isHost = payload.hostId === state.socket.id;
+    updateMembers(payload.members || 0);
+    roomCodeLabel.textContent = payload.code;
 
     if (payload.state) {
       applyRemoteState(payload);
     }
-  });
-
-  state.socket.on('webrtc:signal', ({ sourceId, signal, roomCode }) => {
-    if (!roomCode || roomCode !== state.roomCode) {
-      return;
-    }
-    handleRemoteSignal({ sourceId, signal });
   });
 
   state.socket.on('room:error', ({ message }) => {
@@ -374,8 +211,6 @@ function sendRoomState(force = false) {
     status: snapshot.status,
     currentTime: snapshot.currentTime,
   });
-
-  sendWebRtcState(true);
 }
 
 async function createRoom(sourceUrl) {
