@@ -22,7 +22,7 @@ function registerSocket(io) {
       socket.join(targetCode);
       socket.emit('room:joined', getRoomPayload(targetCode));
       socket.emit('room:state', getRoomPayload(targetCode));
-      emitRoomState(io, targetCode);
+      io.to(targetCode).emit('room:state', getRoomPayload(targetCode));
     });
 
     socket.on('room:state:update', ({ roomCode, status, currentTime }) => {
@@ -42,7 +42,8 @@ function registerSocket(io) {
         updatedAt: Date.now(),
       };
 
-      emitRoomState(io, targetCode);
+      const payload = getRoomPayload(targetCode);
+      socket.to(targetCode).emit('room:state', payload);
     });
 
     socket.on('disconnect', () => {

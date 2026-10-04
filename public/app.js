@@ -14,6 +14,9 @@ const state = {
   roomCode: '',
   sourceUrl: '',
   hls: null,
+  lastSyncSentAt: 0,
+  lastSyncStatus: '',
+  lastSyncTime: 0,
 };
 
 function switchTab(tabName) {
@@ -65,15 +68,19 @@ function initSocket() {
       return;
     }
 
-    if (Math.abs(video.currentTime - payload.state.currentTime) > 1.5) {
-      video.currentTime = payload.state.currentTime;
+    const remoteStatus = payload.state?.status;
+    const remoteTime = Number(payload.state?.currentTime) || 0;
+    const localStatus = video.paused ? 'paused' : 'playing';
+
+    if (Math.abs(video.currentTime - remoteTime) > 1.5) {
+      video.currentTime = remoteTime;
     }
 
-    if (payload.state.status === 'playing' && video.paused) {
+    if (remoteStatus === 'playing' && localStatus !== 'playing') {
       video.play().catch(() => {});
     }
 
-    if (payload.state.status === 'paused' && !video.paused) {
+    if (remoteStatus === 'paused' && localStatus !== 'paused') {
       video.pause();
     }
   });
@@ -127,15 +134,27 @@ function loadSource(url) {
   updateStatus('This browser does not support HLS streams.');
 }
 
-function sendRoomState() {
+function sendRoomState(force = false) {
   if (!state.socket || !state.roomCode) {
     return;
   }
 
+  const nextStatus = video.paused ? 'paused' : 'playing';
+  const nextTime = Number(video.currentTime) || 0;
+  const now = Date.now();
+
+  if (!force && now - state.lastSyncSentAt < 250 && state.lastSyncStatus === nextStatus && Math.abs(state.lastSyncTime - nextTime) < 0.35) {
+    return;
+  }
+
+  state.lastSyncSentAt = now;
+  state.lastSyncStatus = nextStatus;
+  state.lastSyncTime = nextTime;
+
   state.socket.emit('room:state:update', {
     roomCode: state.roomCode,
-    status: video.paused ? 'paused' : 'playing',
-    currentTime: Number(video.currentTime) || 0,
+    status: nextStatus,
+    currentTime: nextTime,
   });
 }
 
@@ -229,15 +248,21 @@ copyRoomLinkButton.addEventListener('click', async () => {
 });
 
 video.addEventListener('play', () => {
-  sendRoomState();
+  sendRoomState(true);
 });
 
 video.addEventListener('pause', () => {
-  sendRoomState();
+  sendRoomState(true);
 });
 
 video.addEventListener('seeked', () => {
-  sendRoomState();
+  sendRoomState(true);
+});
+
+video.addEventListener('timeupdate', () => {
+  if (!video.paused && Math.abs((Number(video.currentTime) || 0) - state.lastSyncTime) > 1) {
+    sendRoomState();
+  }
 });
 
 window.addEventListener('load', () => {
