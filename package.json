@@ -1,0 +1,15 @@
+{
+  "name": "syncstream",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Watch synchronized streams together with a shared .m3u8 room",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "socket.io": "^4.8.1"
+  }
+}
