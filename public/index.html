@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SyncStream</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            boxShadow: {
+              glow: '0 0 0 1px rgba(148,163,184,0.18), 0 28px 80px rgba(15,23,42,0.55)',
+            },
+            colors: {
+              midnight: '#020817',
+            },
+          },
+        },
+      };
+    </script>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.20/dist/hls.min.js"></script>
+    <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  </head>
+  <body class="min-h-screen bg-slate-950 text-slate-100 antialiased">
+    <div class="mx-auto w-full max-w-6xl px-4 py-8 md:px-6 lg:px-8">
+      <header class="mb-8 flex items-end justify-between gap-3">
+        <div>
+          <p class="mb-2 text-[10px] font-medium uppercase tracking-[0.28em] text-slate-300/80">watch together</p>
+          <h1 class="text-3xl font-bold tracking-tight text-white md:text-4xl">SyncStream</h1>
+        </div>
+        <div class="glass-chip hidden md:inline-flex">private room</div>
+      </header>
+
+      <main class="grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+        <section class="glass-panel p-5">
+          <div class="mb-5 flex rounded-2xl border border-white/10 bg-slate-900/50 p-1">
+            <button class="tab active flex-1 rounded-xl px-3 py-2 text-sm font-medium text-white/80 transition hover:text-white" data-tab="create">Create room</button>
+            <button class="tab flex-1 rounded-xl px-3 py-2 text-sm font-medium text-white/80 transition hover:text-white" data-tab="join">Join room</button>
+          </div>
+
+          <div class="tab-content active" id="create-panel">
+            <form id="create-form" class="space-y-4">
+              <label class="block text-sm text-slate-300">
+                <span class="mb-2 block">.m3u8 URL</span>
+                <input id="source-url" name="sourceUrl" type="url" placeholder="https://example.com/movie.m3u8" required class="glass-input" />
+              </label>
+              <button type="submit" class="w-full rounded-2xl bg-gradient-to-r from-cyan-400 via-sky-400 to-blue-500 px-4 py-3 font-semibold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:brightness-110">Create room</button>
+            </form>
+          </div>
+
+          <div class="tab-content" id="join-panel">
+            <form id="join-form" class="space-y-4">
+              <label class="block text-sm text-slate-300">
+                <span class="mb-2 block">Room code</span>
+                <input id="room-code" name="roomCode" type="text" maxlength="6" placeholder="ABCD12" required class="glass-input uppercase" />
+              </label>
+              <button type="submit" class="w-full rounded-2xl bg-gradient-to-r from-violet-400 via-indigo-400 to-cyan-400 px-4 py-3 font-semibold text-slate-950 shadow-lg shadow-indigo-500/20 transition hover:brightness-110">Join room</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="glass-panel hidden p-5" id="room-panel">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p class="text-[10px] font-medium uppercase tracking-[0.28em] text-cyan-300/80">Room</p>
+              <h2 id="room-code-label" class="mt-2 text-2xl font-semibold text-white">—</h2>
+            </div>
+            <button class="glass-button" id="copy-room-link">Copy link</button>
+          </div>
+
+          <div class="overflow-hidden rounded-3xl border border-white/10 bg-slate-950/60 shadow-[0_30px_80px_rgba(2,6,23,0.7)]">
+            <video id="video" controls playsinline class="aspect-video w-full bg-slate-950"></video>
+          </div>
+
+          <div class="mt-4 flex items-center justify-between gap-3 text-sm text-slate-300">
+            <span id="status-text">Waiting for room state</span>
+            <span class="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-slate-200" id="member-count">0 people</span>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
